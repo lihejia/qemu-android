@@ -82,7 +82,7 @@ tcp_output(struct tcpcb *tp)
 	}
 #endif
 	DEBUG_CALL("tcp_output");
-	DEBUG_ARG("tp = %lx", (long )tp);
+	DEBUG_ARG("tp = %p", tp);
 
 	/*
 	 * Determine length of data that should be transmitted,
