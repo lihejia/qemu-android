@@ -105,4 +105,11 @@ struct iovec; /* For win32 */
 size_t sopreprbuf(struct socket *so, struct iovec *iov, int *np);
 int soreadbuf(struct socket *so, const char *buf, int size);
 
+void sotranslate_out(struct socket *, struct sockaddr_storage *);
+void sotranslate_in(struct socket *, struct sockaddr_storage *);
+void sotranslate_accept(struct socket *);
+
+
+
+static inline socklen_t sockaddr_size(struct sockaddr_storage *a) { switch (a->ss_family) { case AF_INET: return sizeof(struct sockaddr_in); case AF_INET6: return sizeof(struct sockaddr_in6); default: g_assert_not_reached(); } }
 #endif /* _SOCKET_H_ */
