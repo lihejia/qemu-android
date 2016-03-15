@@ -234,6 +234,7 @@ QEMU2_COMMON_SOURCES := \
     slirp/tcp_timer.c \
     slirp/tftp.c \
     slirp/udp.c \
+    slirp/udp6.c \
     tcg-runtime.c \
     thread-pool.c \
     tpm.c \
