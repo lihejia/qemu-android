@@ -18,6 +18,7 @@
 #include "android/base/Log.h"
 #include "android/console.h"
 #include "android-qemu2-glue/emulation/android_pipe_device.h"
+#include "android-qemu2-glue/emulation/DmaMap.h"
 #include "android-qemu2-glue/emulation/VmLock.h"
 #include "android-qemu2-glue/qemu-control-impl.h"
 #include "android-qemu2-glue/emulation/goldfish_sync.h"
@@ -27,6 +28,7 @@ extern "C" {
 }  // extern "C"
 
 using android::VmLock;
+using android::DmaMap;
 
 bool qemu_android_emulation_setup() {
     static const AndroidConsoleAgents consoleAgents = {
@@ -42,6 +44,11 @@ bool qemu_android_emulation_setup() {
     VmLock* vmLock = new qemu2::VmLock();
     VmLock* prevVmLock = VmLock::set(vmLock);
     CHECK(prevVmLock == nullptr) << "Another VmLock was already installed!";
+
+    // Ensure the DmaMap implementation is setup.
+    DmaMap* dmaMap = new qemu2::DmaMap();
+    DmaMap* prevDmaMap = DmaMap::set(dmaMap);
+    CHECK(prevDmaMap == nullptr) << "Another DmaMap was already installed!";
 
     // Initialize host pipe service.
     if (!qemu_android_pipe_init(vmLock)) {
