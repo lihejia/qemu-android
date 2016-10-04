@@ -463,24 +463,34 @@ static bool adb_server_listen_incoming(int port)
     adb_backend_state *bs = &adb_state;
     char *host_port;
     char *host_port_ipv6;
-    Error *err = NULL;
     int fd;
     int fd_ipv6;
+    Error *err = NULL;
+    Error *err_v6 = NULL;
 
     host_port = g_strdup_printf("127.0.0.1:%d", port);
     fd = inet_listen(host_port, NULL, 0, SOCK_STREAM, 0, &err);
 
     host_port_ipv6 = g_strdup_printf("[0:0:0:0:0:0:0:1]:%d", port);
-    fd_ipv6 = inet_listen(host_port_ipv6, NULL, 0, SOCK_STREAM, 0, &err);
+    fd_ipv6 = inet_listen(host_port_ipv6, NULL, 0, SOCK_STREAM, 0, &err_v6);
 
     g_free(host_port);
     g_free(host_port_ipv6);
 
     if (fd < 0 && fd_ipv6 < 0) {
-        DPRINTF("%s: Unable to create ADB server socket: %s",
-                __FUNCTION__, strerror(errno));
+        DPRINTF("%s: Unable to create ADB server socket, errors - "
+                "v4: '%s', v6: '%s'",
+                __FUNCTION__,
+                (err ? error_get_pretty(err) : "(none)"),
+                (err_v6 ? error_get_pretty(err_v6) : "(none)"));
+        error_free(err);
+        error_free(err_v6);
         return false;
     }
+
+    // We don't care about the specific error codes for anything but logging.
+    error_free(err);
+    error_free(err_v6);
 
     if (fd >= 0) {
         bs->listen_chan = io_channel_from_socket(fd);
