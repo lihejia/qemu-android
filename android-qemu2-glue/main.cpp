@@ -441,8 +441,6 @@ extern "C" int main(int argc, char **argv) {
     }
 
     if (opts->dns_server) {
-        args[n++] = "-dns-server";
-        args[n++] = opts->dns_server;
     }
 
     if (opts->skip_adb_auth) {
