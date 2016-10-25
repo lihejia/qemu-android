@@ -11,9 +11,6 @@
 #ifdef __sun__
 #include <sys/filio.h>
 #endif
-#ifdef CONFIG_ANDROID
-#include "android/proxy/proxy_common.h"
-#endif  // CONFIG_ANDROID
 
 static void sofcantrcvmore(struct socket *so);
 static void sofcantsendmore(struct socket *so);
@@ -66,11 +63,6 @@ void
 sofree(struct socket *so)
 {
   Slirp *slirp = so->slirp;
-
-#ifdef CONFIG_ANDROID
-  if (so->so_state & SS_PROXIFIED)
-    proxy_manager_del(so);
-#endif
 
   if (so->so_emu==EMU_RSH && so->extra) {
 	sofree(so->extra);
