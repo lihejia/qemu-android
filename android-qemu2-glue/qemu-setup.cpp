@@ -17,6 +17,7 @@
 #include "android/android.h"
 #include "android/console.h"
 #include "android/emulation/vm_lock.h"
+#include "android/utils/debug.h"
 #include "android-qemu2-glue/qemu-control-impl.h"
 
 extern "C" {
@@ -26,6 +27,8 @@ extern "C" {
 extern "C" void qemu2_android_console_setup(const AndroidConsoleAgents* agents);
 
 bool qemu_android_emulation_setup() {
+    VERBOSE_PRINT(init, "(%s) entering", __func__);
+
     static const AndroidConsoleAgents consoleAgents = {
             gQAndroidBatteryAgent,
             gQAndroidFingerAgent,

@@ -103,8 +103,13 @@
 #include "qom/object_interfaces.h"
 #include "qapi-event.h"
 
-#ifdef CONFIG_ANDROID
+#ifndef CONFIG_ANDROID
 
+#define INIT_PRINT(...) do {} while(0)
+
+#else  // CONFIG_ANDROID
+
+#define INIT_PRINT(...) do { VERBOSE_PRINT(init, __VA_ARGS__); } while(0)
 
 #include "config.h"
 
@@ -4855,10 +4860,9 @@ int run_qemu_main(int argc, const char **argv)
         // Then initialize them.
 #define GOLDFISH_INIT_PROP(name, val)  \
             goldfish_events_properties[n].value = (val) ? "true" : "false"; \
-            VERBOSE_PRINT(init, \
-                          "goldfish_events.%s: %s", \
-                          goldfish_events_properties[n].property, \
-                          goldfish_events_properties[n].value); \
+            INIT_PRINT("goldfish_events.%s: %s", \
+                       goldfish_events_properties[n].property, \
+                       goldfish_events_properties[n].value); \
             n++;
 
         int n = 0;
@@ -4881,8 +4885,10 @@ int run_qemu_main(int argc, const char **argv)
 #endif  // CONFIG_ANDROID
 
     qemu_add_globals();
+    INIT_PRINT("qemu_add_globals() finished");
 
     qdev_machine_init();
+    INIT_PRINT("qdev_machine_init() finished");
 
     current_machine->ram_size = ram_size;
     current_machine->maxram_size = maxram_size;
@@ -4891,6 +4897,8 @@ int run_qemu_main(int argc, const char **argv)
     current_machine->cpu_model = cpu_model;
 
     machine_class->init(current_machine);
+    INIT_PRINT("machine class initialized");
+
 #ifdef CONFIG_ANDROID
     if (android_init_error_occurred()) {
         // Something went wrong when initializing the virtual machine
@@ -4901,12 +4909,15 @@ int run_qemu_main(int argc, const char **argv)
     if (!realtime_init()) {
         return 1;
     }
+    INIT_PRINT("realtime_init() finished");
 
     if (!audio_init()) {
         return 1;
     }
+    INIT_PRINT("audio_init() finished");
 
     cpu_synchronize_all_post_init();
+    INIT_PRINT("cpu post-init synchronization finished");
 
     set_numa_modes();
 
@@ -4915,6 +4926,7 @@ int run_qemu_main(int argc, const char **argv)
             fprintf(stderr, "Internal error: initial hax sync failed\n");
             return 1;
         }
+        INIT_PRINT("hax_sync_vcpus() finished");
     }
 
     /* init USB devices */
@@ -4922,15 +4934,19 @@ int run_qemu_main(int argc, const char **argv)
         if (foreach_device_config(DEV_USB, usb_parse) < 0)
             return 1;
     }
+    INIT_PRINT("usb device parsing finished");
 
     /* init generic devices */
     if (qemu_opts_foreach(qemu_find_opts("device"), device_init_func, NULL, 1) != 0)
         return 1;
+    INIT_PRINT("generic devices initialized");
 
     /* Did we create any drives that we failed to create a device for? */
     drive_check_orphaned();
+    INIT_PRINT("drive_check_orphaned() finished");
 
     net_check_clients();
+    INIT_PRINT("net_check_clients() finished");
 
 #if defined(CONFIG_ANDROID)
     /* call android-specific setup function */
