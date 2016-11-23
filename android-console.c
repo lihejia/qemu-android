@@ -40,6 +40,7 @@
 #include "android/error-messages.h"
 #include "android/emulator-window.h"
 #include "android/skin/ui.h"
+#include "android/utils/debug.h"
 
 #include "android/globals.h"
 
@@ -107,6 +108,8 @@ static CharDriverState *android_try_create_console_chardev(int portno)
 static bool perform_console_and_adb_init(int console_port,
                                          int adb_port,
                                          int tries) {
+    VERBOSE_PRINT(init, "entering %s", __func__);
+
     /* Initialize the console and ADB, which must listen on two
      * consecutive TCP ports starting from 5554 and working up until
      * we manage to open both connections.
@@ -146,6 +149,8 @@ static bool perform_console_and_adb_init(int console_port,
 }
 
 bool android_initialize_console_and_adb() {
+    VERBOSE_PRINT(init, "entering %s", __func__);
+
     int console_port = MAX(android_base_port, ANDROID_CONSOLE_BASEPORT);
     int adb_port = console_port + 1;
     int tries = MAX_ANDROID_EMULATORS;

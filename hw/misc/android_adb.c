@@ -33,6 +33,13 @@
 
 #include "hw/misc/android_pipe.h"
 
+#ifdef CONFIG_ANDROID
+#include "android/utils/debug.h"
+#define INIT_PRINT(...) VERBOSE_PRINT(init, __VA_ARGS__)
+#else
+#define INIT_PRINT(...) do {} while(0)
+#endif
+
 //#define DEBUG_ADB
 
 #ifdef DEBUG_ADB
@@ -163,6 +170,7 @@ static QemuOpts* adb_server_config(void) {
 }
 
 static void adb_server_notify(int adb_port) {
+    INIT_PRINT("entering %s", __func__);
     Error *local_err = NULL;
     QemuOpts *socket_opts = adb_server_config();
     int sock = inet_connect_opts(socket_opts, &local_err, NULL, NULL);
@@ -505,8 +513,8 @@ static bool adb_server_listen_incoming(int port)
                         tcp_adb_accept_ipv6, &(bs->ipv6_listener));
     }
 
-    DPRINTF("ADB server has been initialized for port %d. "
-            "Socket: ipv4=%d ipv6=%d\n", port, fd, fd_ipv6);
+    INIT_PRINT("ADB server has been initialized for port %d. "
+               "Socket: ipv4=%d ipv6=%d\n", port, fd, fd_ipv6);
 
     return true;
 }
@@ -953,6 +961,8 @@ static const AndroidPipeFuncs adb_pipe_funcs = {
  */
 bool qemu2_adb_server_init(int port)
 {
+    INIT_PRINT("entering %s, port %d", __func__, port);
+
     if (!pipe_backend_initialized) {
         adb_state.chan = NULL;
         adb_state.listen_chan = NULL;
