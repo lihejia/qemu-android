@@ -21,14 +21,9 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-#ifdef CONFIG_ANDROID
-#include "android/utils/dns.h"
-#include "android/utils/ipaddr.h"
-#include "android/utils/sockets.h"
-#endif  // CONFIG_ANDROID
-
 #include "qemu-common.h"
 #include "qemu/timer.h"
+#include "qemu/error-report.h"
 #include "sysemu/char.h"
 #include "slirp.h"
 #include "hw/hw.h"
@@ -48,18 +43,8 @@ u_int curtime;
 static QTAILQ_HEAD(slirp_instances, Slirp) slirp_instances =
     QTAILQ_HEAD_INITIALIZER(slirp_instances);
 
-#ifdef CONFIG_ANDROID
-#define SPECIAL_ADDRESS_IP "10.0.2.0"
-#define DNS_ADDR_MAX 4
-#define DNS_ADDR_BASE 3
-
-static uint32_t dns_addr[DNS_ADDR_MAX];
-static size_t dns_addr_count = 0;
-static struct in_addr special_addr_ip;
-#else  // !(CONFIG_ANDROID)
 static struct in_addr dns_addr;
 static u_int dns_addr_time;
-#endif  // CONFIG_ANDROID
 
 #define TIMEOUT_FAST 2  /* milliseconds */
 #define TIMEOUT_SLOW 499  /* milliseconds */
@@ -67,70 +52,8 @@ static u_int dns_addr_time;
 #define TIMEOUT_DEFAULT 1000  /* milliseconds */
 
 #ifdef _WIN32
-static void winsock_cleanup(void)
-{
-    WSACleanup();
-}
-#endif
 
-#ifdef CONFIG_ANDROID
-static size_t get_dns_index(uint32_t addr) {
-    /* Use unsigned underflow so that values less than DNS_BASE_ADDR become
-     * huge and invalid */
-    return (addr & 0xff) - DNS_ADDR_BASE;
-}
-
-// The Slirp parameter is just there to maintain the same interface that would
-// be used for non-Android compiles. This makes calling code cleaner.
-int is_dns_addr(Slirp* slirp, const struct in_addr* address)  {
-    /* special_addr is stored in host byte order but the incoming parameter is
-     * in network order. Make sure they're both in host order */
-    uint32_t addr = ntohl(address->s_addr);
-    uint32_t network = addr & 0xffffff00;
-    return network == special_addr_ip.s_addr &&
-            get_dns_index(addr) < DNS_ADDR_MAX;
-}
-
-int get_dns_addr(const struct in_addr* guest_addr,
-                 struct in_addr* pdns_addr)
-{
-    size_t dns_index = get_dns_index(ntohl(guest_addr->s_addr));
-
-    if (dns_index < dns_addr_count && dns_addr[dns_index] != 0) {
-        pdns_addr->s_addr = htonl(dns_addr[dns_index]);
-        return 0;
-    }
-    return -1;
-}
-
-int slirp_get_system_dns_servers(void)
-{
-    int num_servers = android_dns_get_system_servers(dns_addr, DNS_ADDR_MAX);
-    if (num_servers >= 0)
-        dns_addr_count = num_servers;
-    return num_servers;
-}
-
-int slirp_parse_dns_servers(const char* servers) {
-    int num_servers = android_dns_parse_servers(servers, dns_addr, DNS_ADDR_MAX);
-    if (num_servers >= 0)
-        dns_addr_count = num_servers;
-    return num_servers;
-}
-
-int slirp_get_max_dns_servers(void) {
-    return DNS_ADDR_MAX;
-}
-
-#else  // !(CONFIG_ANDROID)
-
-int is_dns_addr(Slirp* slirp, const struct in_addr* address)  {
-    return address->s_addr == slirp->vnameserver_addr.s_addr;
-}
-
-#ifdef _WIN32
-int get_dns_addr(const struct in_addr* guest_addr,
-                 struct in_addr* pdns_addr)
+int get_dns_addr(struct in_addr *pdns_addr)
 {
     FIXED_INFO *FixedInfo=NULL;
     ULONG    BufLen;
@@ -138,7 +61,6 @@ int get_dns_addr(const struct in_addr* guest_addr,
     IP_ADDR_STRING *pIPAddr;
     struct in_addr tmp_addr;
 
-    (void)guest_addr;
 
     if (dns_addr.s_addr != 0 && (curtime - dns_addr_time) < TIMEOUT_DEFAULT) {
         *pdns_addr = dns_addr;
@@ -177,12 +99,16 @@ int get_dns_addr(const struct in_addr* guest_addr,
     return 0;
 }
 
-#else  // !(_WIN32)
+static void winsock_cleanup(void)
+{
+    WSACleanup();
+}
+
+#else
 
 static struct stat dns_addr_stat;
 
-int get_dns_addr(const struct in_addr* guest_addr,
-                 struct in_addr* pdns_addr)
+int get_dns_addr(struct in_addr *pdns_addr)
 {
     char buff[512];
     char buff2[257];
@@ -246,8 +172,8 @@ int get_dns_addr(const struct in_addr* guest_addr,
         return -1;
     return 0;
 }
-#endif  // _WIN32
-#endif  // CONFIG_ANDROID
+
+#endif
 
 static void slirp_init_once(void)
 {
@@ -284,10 +210,12 @@ Slirp *slirp_init(int restricted, struct in_addr vnetwork,
 
     slirp_init_once();
 
+    slirp->grand = g_rand_new();
     slirp->restricted = restricted;
 
     if_init(slirp);
     ip_init(slirp);
+    ip6_init(slirp);
 
     /* Initialise mbufs *after* setting the MTU */
     m_init(slirp);
@@ -295,6 +223,22 @@ Slirp *slirp_init(int restricted, struct in_addr vnetwork,
     slirp->vnetwork_addr = vnetwork;
     slirp->vnetwork_mask = vnetmask;
     slirp->vhost_addr = vhost;
+#if defined(_WIN32) && (_WIN32_WINNT < 0x0600)
+    /* No inet_pton helper... */
+    memset(&slirp->vprefix_addr6, 0, sizeof(slirp->vprefix_addr6));
+    slirp->vprefix_addr6.s6_addr[0] = 0xfe;
+    slirp->vprefix_addr6.s6_addr[1] = 0xc0;
+    slirp->vprefix_len = 64;
+    slirp->vhost_addr6 = slirp->vprefix_addr6;
+    slirp->vhost_addr6.s6_addr[15] = 0x2;
+    slirp->vnameserver_addr6 = slirp->vprefix_addr6;
+    slirp->vnameserver_addr6.s6_addr[15] = 0x3;
+#else
+    inet_pton(AF_INET6, "fec0::0", &slirp->vprefix_addr6);
+    slirp->vprefix_len = 64;
+    inet_pton(AF_INET6, "fec0::2", &slirp->vhost_addr6);
+    inet_pton(AF_INET6, "fec0::3", &slirp->vnameserver_addr6);
+#endif
     if (vhostname) {
         pstrcpy(slirp->client_hostname, sizeof(slirp->client_hostname),
                 vhostname);
@@ -310,13 +254,7 @@ Slirp *slirp_init(int restricted, struct in_addr vnetwork,
 
     slirp->opaque = opaque;
 
-#ifdef CONFIG_ANDROID
-    uint32_t special_ip = 0;
-    inet_strtoip(SPECIAL_ADDRESS_IP, &special_ip);
-    special_addr_ip.s_addr = special_ip;
-#endif
-
-    register_savevm(NULL, "slirp", 0, 3,
+    register_savevm(NULL, "slirp", 0, 4,
                     slirp_state_save, slirp_state_load, slirp);
 
     QTAILQ_INSERT_TAIL(&slirp_instances, slirp, entry);
@@ -331,7 +269,10 @@ void slirp_cleanup(Slirp *slirp)
     unregister_savevm(NULL, "slirp", slirp);
 
     ip_cleanup(slirp);
+    ip6_cleanup(slirp);
     m_cleanup(slirp);
+
+    g_rand_free(slirp->grand);
 
     g_free(slirp->vdnssearch);
     g_free(slirp->tftp_prefix);
@@ -598,7 +539,12 @@ void slirp_pollfds_poll(GArray *pollfds, int select_error)
                  * test for G_IO_IN below if this succeeds
                  */
                 if (revents & G_IO_PRI) {
-                    sorecvoob(so);
+                    ret = sorecvoob(so);
+                    if (ret < 0) {
+                        /* Socket error might have resulted in the socket being
+                         * removed, do not try to do anything more with it. */
+                        continue;
+                    }
                 }
                 /*
                  * Check sockets for reading
@@ -616,6 +562,11 @@ void slirp_pollfds_poll(GArray *pollfds, int select_error)
                     /* Output it if we read something */
                     if (ret > 0) {
                         tcp_output(sototcpcb(so));
+                    }
+                    if (ret < 0) {
+                        /* Socket error might have resulted in the socket being
+                         * removed, do not try to do anything more with it. */
+                        continue;
                     }
                 }
 
@@ -648,7 +599,8 @@ void slirp_pollfds_poll(GArray *pollfds, int select_error)
                         /*
                          * Continue tcp_input
                          */
-                        tcp_input((struct mbuf *)NULL, sizeof(struct ip), so);
+                        tcp_input((struct mbuf *)NULL, sizeof(struct ip), so,
+                                  so->so_ffamily);
                         /* continue; */
                     } else {
                         ret = sowrite(so);
@@ -697,7 +649,8 @@ void slirp_pollfds_poll(GArray *pollfds, int select_error)
                         }
 
                     }
-                    tcp_input((struct mbuf *)NULL, sizeof(struct ip), so);
+                    tcp_input((struct mbuf *)NULL, sizeof(struct ip), so,
+                              so->so_ffamily);
                 } /* SS_ISFCONNECTING */
 #endif
             }
@@ -824,39 +777,41 @@ void slirp_input(Slirp *slirp, const uint8_t *pkt, int pkt_len)
         arp_input(slirp, pkt, pkt_len);
         break;
     case ETH_P_IP:
+    case ETH_P_IPV6:
         m = m_get(slirp);
         if (!m)
             return;
-        /* Note: we add to align the IP header */
-        if (M_FREEROOM(m) < pkt_len + 2) {
-            m_inc(m, pkt_len + 2);
+        /* Note: we add 2 to align the IP header on 4 bytes,
+         * and add the margin for the tcpiphdr overhead  */
+        if (M_FREEROOM(m) < pkt_len + TCPIPHDR_DELTA + 2) {
+            m_inc(m, pkt_len + TCPIPHDR_DELTA + 2);
         }
-        m->m_len = pkt_len + 2;
-        memcpy(m->m_data + 2, pkt, pkt_len);
+        m->m_len = pkt_len + TCPIPHDR_DELTA + 2;
+        memcpy(m->m_data + TCPIPHDR_DELTA + 2, pkt, pkt_len);
 
-        m->m_data += 2 + ETH_HLEN;
-        m->m_len -= 2 + ETH_HLEN;
+        m->m_data += TCPIPHDR_DELTA + 2 + ETH_HLEN;
+        m->m_len -= TCPIPHDR_DELTA + 2 + ETH_HLEN;
 
-        ip_input(m);
+        if (proto == ETH_P_IP) {
+            ip_input(m);
+        } else if (proto == ETH_P_IPV6) {
+            ip6_input(m);
+        }
         break;
+
     default:
         break;
     }
 }
 
-/* Output the IP packet to the ethernet device. Returns 0 if the packet must be
- * re-queued.
+/* Prepare the IPv4 packet to be sent to the ethernet device. Returns 1 if no
+ * packet should be sent, 0 if the packet must be re-queued, 2 if the packet
+ * is ready to go.
  */
-int if_encap(Slirp *slirp, struct mbuf *ifm)
+static int if_encap4(Slirp *slirp, struct mbuf *ifm, struct ethhdr *eh,
+        uint8_t ethaddr[ETH_ALEN])
 {
-    uint8_t buf[1600];
-    struct ethhdr *eh = (struct ethhdr *)buf;
-    uint8_t ethaddr[ETH_ALEN];
     const struct ip *iph = (const struct ip *)ifm->m_data;
-
-    if (ifm->m_len + ETH_HLEN > sizeof(buf)) {
-        return 1;
-    }
 
     if (iph->ip_dst.s_addr == 0) {
         /* 0.0.0.0 can not be a destination address, something went wrong,
@@ -868,7 +823,7 @@ int if_encap(Slirp *slirp, struct mbuf *ifm)
         struct ethhdr *reh = (struct ethhdr *)arp_req;
         struct arphdr *rah = (struct arphdr *)(arp_req + ETH_HLEN);
 
-        if (!ifm->arp_requested) {
+        if (!ifm->resolution_requested) {
             /* If the client addr is not known, send an ARP request */
             memset(reh->h_dest, 0xff, ETH_ALEN);
             memcpy(reh->h_source, special_ethaddr, ETH_ALEN - 4);
@@ -894,22 +849,93 @@ int if_encap(Slirp *slirp, struct mbuf *ifm)
             rah->ar_tip = iph->ip_dst.s_addr;
             slirp->client_ipaddr = iph->ip_dst;
             slirp_output(slirp->opaque, arp_req, sizeof(arp_req));
-            ifm->arp_requested = true;
+            ifm->resolution_requested = true;
 
             /* Expire request and drop outgoing packet after 1 second */
             ifm->expiration_date = qemu_clock_get_ns(QEMU_CLOCK_REALTIME) + 1000000000ULL;
         }
         return 0;
     } else {
-        memcpy(eh->h_dest, ethaddr, ETH_ALEN);
         memcpy(eh->h_source, special_ethaddr, ETH_ALEN - 4);
         /* XXX: not correct */
         memcpy(&eh->h_source[2], &slirp->vhost_addr, 4);
         eh->h_proto = htons(ETH_P_IP);
-        memcpy(buf + sizeof(struct ethhdr), ifm->m_data, ifm->m_len);
-        slirp_output(slirp->opaque, buf, ifm->m_len + ETH_HLEN);
+
+        /* Send this */
+        return 2;
+    }
+}
+
+/* Prepare the IPv6 packet to be sent to the ethernet device. Returns 1 if no
+ * packet should be sent, 0 if the packet must be re-queued, 2 if the packet
+ * is ready to go.
+ */
+static int if_encap6(Slirp *slirp, struct mbuf *ifm, struct ethhdr *eh,
+        uint8_t ethaddr[ETH_ALEN])
+{
+    const struct ip6 *ip6h = mtod(ifm, const struct ip6 *);
+    if (!ndp_table_search(slirp, ip6h->ip_dst, ethaddr)) {
+        if (!ifm->resolution_requested) {
+            ndp_send_ns(slirp, ip6h->ip_dst);
+            ifm->resolution_requested = true;
+            ifm->expiration_date =
+                qemu_clock_get_ns(QEMU_CLOCK_REALTIME) + 1000000000ULL;
+        }
+        return 0;
+    } else {
+        eh->h_proto = htons(ETH_P_IPV6);
+        in6_compute_ethaddr(ip6h->ip_src, eh->h_source);
+
+        /* Send this */
+        return 2;
+    }
+}
+
+/* Output the IP packet to the ethernet device. Returns 0 if the packet must be
+ * re-queued.
+ */
+int if_encap(Slirp *slirp, struct mbuf *ifm)
+{
+    uint8_t buf[1600];
+    struct ethhdr *eh = (struct ethhdr *)buf;
+    uint8_t ethaddr[ETH_ALEN];
+    const struct ip *iph = (const struct ip *)ifm->m_data;
+    int ret;
+
+    if (ifm->m_len + ETH_HLEN > sizeof(buf)) {
         return 1;
     }
+
+    switch (iph->ip_v) {
+    case IPVERSION:
+        ret = if_encap4(slirp, ifm, eh, ethaddr);
+        if (ret < 2) {
+            return ret;
+        }
+        break;
+
+    case IP6VERSION:
+        ret = if_encap6(slirp, ifm, eh, ethaddr);
+        if (ret < 2) {
+            return ret;
+        }
+        break;
+
+    default:
+        g_assert_not_reached();
+        break;
+    }
+
+    memcpy(eh->h_dest, ethaddr, ETH_ALEN);
+    DEBUG_ARGS((dfd, " src = %02x:%02x:%02x:%02x:%02x:%02x\n",
+                eh->h_source[0], eh->h_source[1], eh->h_source[2],
+                eh->h_source[3], eh->h_source[4], eh->h_source[5]));
+    DEBUG_ARGS((dfd, " dst = %02x:%02x:%02x:%02x:%02x:%02x\n",
+                eh->h_dest[0], eh->h_dest[1], eh->h_dest[2],
+                eh->h_dest[3], eh->h_dest[4], eh->h_dest[5]));
+    memcpy(buf + sizeof(struct ethhdr), ifm->m_data, ifm->m_len);
+    slirp_output(slirp->opaque, buf, ifm->m_len + ETH_HLEN);
+    return 1;
 }
 
 /* Drop host forwarding rule, return 0 if found. */
@@ -1093,10 +1119,26 @@ static void slirp_sbuf_save(QEMUFile *f, struct sbuf *sbuf)
 static void slirp_socket_save(QEMUFile *f, struct socket *so)
 {
     qemu_put_be32(f, so->so_urgc);
-    qemu_put_be32(f, so->so_faddr.s_addr);
-    qemu_put_be32(f, so->so_laddr.s_addr);
-    qemu_put_be16(f, so->so_fport);
-    qemu_put_be16(f, so->so_lport);
+    qemu_put_be16(f, so->so_ffamily);
+    switch (so->so_ffamily) {
+    case AF_INET:
+        qemu_put_be32(f, so->so_faddr.s_addr);
+        qemu_put_be16(f, so->so_fport);
+        break;
+    default:
+        error_report(
+                "so_ffamily unknown, unable to save so_faddr and so_fport\n");
+    }
+    qemu_put_be16(f, so->so_lfamily);
+    switch (so->so_lfamily) {
+    case AF_INET:
+        qemu_put_be32(f, so->so_laddr.s_addr);
+        qemu_put_be16(f, so->so_lport);
+        break;
+    default:
+        error_report(
+                "so_ffamily unknown, unable to save so_laddr and so_lport\n");
+    }
     qemu_put_byte(f, so->so_iptos);
     qemu_put_byte(f, so->so_emu);
     qemu_put_byte(f, so->so_type);
@@ -1210,16 +1252,40 @@ static int slirp_sbuf_load(QEMUFile *f, struct sbuf *sbuf)
     return 0;
 }
 
-static int slirp_socket_load(QEMUFile *f, struct socket *so)
+static int slirp_socket_load(QEMUFile *f, struct socket *so, int version_id)
 {
     if (tcp_attach(so) < 0)
         return -ENOMEM;
 
     so->so_urgc = qemu_get_be32(f);
-    so->so_faddr.s_addr = qemu_get_be32(f);
-    so->so_laddr.s_addr = qemu_get_be32(f);
-    so->so_fport = qemu_get_be16(f);
-    so->so_lport = qemu_get_be16(f);
+    if (version_id <= 3) {
+        so->so_ffamily = AF_INET;
+        so->so_faddr.s_addr = qemu_get_be32(f);
+        so->so_laddr.s_addr = qemu_get_be32(f);
+        so->so_fport = qemu_get_be16(f);
+        so->so_lport = qemu_get_be16(f);
+    } else {
+        so->so_ffamily = qemu_get_be16(f);
+        switch (so->so_ffamily) {
+        case AF_INET:
+            so->so_faddr.s_addr = qemu_get_be32(f);
+            so->so_fport = qemu_get_be16(f);
+            break;
+        default:
+            error_report(
+                "so_ffamily unknown, unable to restore so_faddr and so_lport");
+        }
+        so->so_lfamily = qemu_get_be16(f);
+        switch (so->so_lfamily) {
+        case AF_INET:
+            so->so_laddr.s_addr = qemu_get_be32(f);
+            so->so_lport = qemu_get_be16(f);
+            break;
+        default:
+            error_report(
+                "so_ffamily unknown, unable to restore so_laddr and so_lport");
+        }
+    }
     so->so_iptos = qemu_get_byte(f);
     so->so_emu = qemu_get_byte(f);
     so->so_type = qemu_get_byte(f);
@@ -1255,7 +1321,7 @@ static int slirp_state_load(QEMUFile *f, void *opaque, int version_id)
         if (!so)
             return -ENOMEM;
 
-        ret = slirp_socket_load(f, so);
+        ret = slirp_socket_load(f, so, version_id);
 
         if (ret < 0)
             return ret;

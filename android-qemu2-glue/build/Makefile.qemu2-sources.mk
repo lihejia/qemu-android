@@ -217,8 +217,12 @@ QEMU2_COMMON_SOURCES := \
     slirp/dnssearch.c \
     slirp/if.c \
     slirp/ip_icmp.c \
+    slirp/ip6_icmp.c \
     slirp/ip_input.c \
+    slirp/ip6_input.c \
     slirp/ip_output.c \
+    slirp/ip6_output.c \
+    slirp/ndp_table.c \
     slirp/mbuf.c \
     slirp/misc.c \
     slirp/sbuf.c \
@@ -230,6 +234,7 @@ QEMU2_COMMON_SOURCES := \
     slirp/tcp_timer.c \
     slirp/tftp.c \
     slirp/udp.c \
+    slirp/udp6.c \
     tcg-runtime.c \
     thread-pool.c \
     tpm.c \

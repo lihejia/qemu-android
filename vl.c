@@ -229,9 +229,7 @@ int no_shutdown = 0;
 int cursor_hide = 1;
 int graphic_rotate = 0;
 #ifdef CONFIG_ANDROID
-char* android_op_dns_server = NULL;
 int lcd_density = LCD_DENSITY_MDPI;
-extern char* op_http_proxy;
 extern char* android_op_ports;
 extern int android_op_ports_numbers[2];
 extern char* android_op_report_console;
@@ -4145,13 +4143,7 @@ int run_qemu_main(int argc, const char **argv)
                         return 1;
                 }
                 break;
-            case QEMU_OPTION_dns_server:
-                android_op_dns_server = (char*)optarg;
-                break;
 
-            case QEMU_OPTION_http_proxy:
-                op_http_proxy = (char*)optarg;
-                break;
             case QEMU_OPTION_android_hw:
                 android_hw_file = optarg;
                 break;
@@ -4331,37 +4323,6 @@ int run_qemu_main(int argc, const char **argv)
         char temp[8];
         snprintf(temp, sizeof(temp), "%d", lcd_density);
         boot_property_add("qemu.sf.lcd_density", temp);
-    }
-
-    int dns_count = 0;
-    if (android_op_dns_server) {
-        dns_count = slirp_parse_dns_servers(android_op_dns_server);
-        if (dns_count == -2) {
-            // Special case for better user feedback on this error message
-            fprintf(stderr,
-                    "too many servers specified in -dns-server-parameter "
-                    "argument '%s'. A maximum of %d is supported.\n",
-                    android_op_dns_server,
-                    slirp_get_max_dns_servers());
-            return 1;
-        } else if (dns_count < 0) {
-            fprintf(stderr, "invalid -dns-server parameter '%s'\n",
-                    android_op_dns_server);
-            return 1;
-        }
-        if (dns_count == 0) {
-            printf("### WARNING: will use system default DNS server\n");
-        }
-    }
-    if (dns_count == 0) {
-        dns_count = slirp_get_system_dns_servers();
-        if (dns_count < 0) {
-            printf("### WARNING: unable to configure any DNS servers, "
-                   "name resolution will not work\n");
-        }
-    }
-    if (dns_count > 1) {
-        additional_kernel_params = g_strdup_printf("ndns=%d", dns_count);
     }
 
 #endif // CONFIG_ANDROID

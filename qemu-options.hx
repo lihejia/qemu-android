@@ -3435,22 +3435,6 @@ STEXI
 Report console port to remote socket
 ETEXI
 
-DEF("http-proxy", HAS_ARG, QEMU_OPTION_http_proxy,
-    "-http-proxy <proxy> make TCP connections through a HTTP/HTTPS proxy\n", QEMU_ARCH_ALL)
-STEXI
-@item -http-proxy @var{proxy}
-@findex -http-proxy
-make TCP connections through a HTTP/HTTPS proxy
-ETEXI
-
-DEF("dns-server", HAS_ARG, QEMU_OPTION_dns_server,
-    "-dns-server <servers> use this DNS server(s) in the emulated system\n", QEMU_ARCH_ALL)
-STEXI
-@item -dns-server @var{servers}
-@findex -dns-server
-Use one or more DNS servers, separated by comma, in the emulated system
-ETEXI
-
 DEF("android-hw", HAS_ARG, QEMU_OPTION_android_hw,
     "-android-hw <file>\n"
     "                specify the hw config ini file location\n", QEMU_ARCH_ALL)

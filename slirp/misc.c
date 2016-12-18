@@ -15,11 +15,6 @@
 int slirp_debug = DBG_CALL|DBG_MISC|DBG_ERROR;
 #endif
 
-struct quehead {
-	struct quehead *qh_link;
-	struct quehead *qh_rlink;
-};
-
 inline void
 insque(void *a, void *b)
 {
@@ -122,9 +117,9 @@ fork_exec(struct socket *so, const char *ex, int do_pty)
 	pid_t pid;
 
 	DEBUG_CALL("fork_exec");
-	DEBUG_ARG("so = %lx", (long)so);
-	DEBUG_ARG("ex = %lx", (long)ex);
-	DEBUG_ARG("do_pty = %lx", (long)do_pty);
+	DEBUG_ARG("so = %p", so);
+	DEBUG_ARG("ex = %p", ex);
+	DEBUG_ARG("do_pty = %x", do_pty);
 
 	if (do_pty == 2) {
                 return 0;
