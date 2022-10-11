@@ -178,7 +178,8 @@ goldfish_audio_buff_recv( struct goldfish_audio_buff*  b, int  avail, struct gol
     if (avail2 > 0)
         trace_goldfish_audio_buff_recv(avail2, read);
 
-    cpu_physical_memory_write( b->address + b->offset, b->data, read );
+    cpu_physical_memory_write(b->address + b->offset, b->data + b->offset,
+            read);
     b->offset += read;
 
     return read;
@@ -457,16 +458,27 @@ static void goldfish_audio_realize(DeviceState *dev, Error **errp)
     struct goldfish_audio_state *s = GOLDFISH_AUDIO(dev);
     struct audsettings as;
 
+    /* MMIO must be set up regardless of whether the initialization of input
+     * and output voices is successful or not. Otherwise, an assertion error
+     * will occur in sysbus_mmio_map_common() (hw/core/sysbus.c).
+     */
+    memory_region_init_io(&s->iomem, OBJECT(s), &goldfish_audio_iomem_ops, s,
+            "goldfish_audio", 0x100);
+    sysbus_init_mmio(sbdev, &s->iomem);
     sysbus_init_irq(sbdev, &s->irq);
+
+    /* Skip all the rest if both audio input and output are disabled. */
+    if (!s->output && !s->input) {
+        return;
+    }
 
     AUD_register_card( "goldfish_audio", &s->card);
 
-    as.freq = 44100;
-    as.nchannels = 2;
-    as.fmt = AUD_FMT_S16;
-    as.endianness = AUDIO_HOST_ENDIANNESS;
-
     if (s->output) {
+        as.freq = 44100;
+        as.nchannels = 2;
+        as.fmt = AUD_FMT_S16;
+        as.endianness = AUDIO_HOST_ENDIANNESS;
         s->voice = AUD_open_out (
             &s->card,
             NULL,
@@ -476,17 +488,18 @@ static void goldfish_audio_realize(DeviceState *dev, Error **errp)
             &as
             );
         if (!s->voice) {
-            error_setg(errp, "opening audio output failed");
-            return;
+            error_report("warning: opening audio output failed");
+        } else {
+            goldfish_audio_buff_init( &s->out_buffs[0] );
+            goldfish_audio_buff_init( &s->out_buffs[1] );
         }
     }
 
-    as.freq       = 8000;
-    as.nchannels  = 1;
-    as.fmt        = AUD_FMT_S16;
-    as.endianness = AUDIO_HOST_ENDIANNESS;
-
     if (s->input) {
+        as.freq       = 8000;
+        as.nchannels  = 1;
+        as.fmt        = AUD_FMT_S16;
+        as.endianness = AUDIO_HOST_ENDIANNESS;
         s->voicein = AUD_open_in (
             &s->card,
             NULL,
@@ -497,16 +510,10 @@ static void goldfish_audio_realize(DeviceState *dev, Error **errp)
             );
         if (!s->voicein) {
             error_report("warning: opening audio input failed");
+        } else {
+            goldfish_audio_buff_init( &s->in_buff );
         }
     }
-
-    goldfish_audio_buff_init( &s->out_buffs[0] );
-    goldfish_audio_buff_init( &s->out_buffs[1] );
-    goldfish_audio_buff_init( &s->in_buff );
-
-    memory_region_init_io(&s->iomem, OBJECT(s), &goldfish_audio_iomem_ops, s,
-            "goldfish_audio", 0x100);
-    sysbus_init_mmio(sbdev, &s->iomem);
 }
 
 static Property goldfish_audio_properties[] = {
