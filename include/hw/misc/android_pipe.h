@@ -16,6 +16,14 @@
 #include <stdint.h>
 #include "hw/hw.h"
 
+extern bool qemu2_adb_server_init(int port);
+
+#if defined(USE_ANDROID_EMU)
+
+#include "android/emulation/android_pipe.h"
+
+#else
+
 /* TECHNICAL NOTE:
  *
  * A android pipe is a very fast communication channel between the guest
@@ -138,6 +146,8 @@ extern void android_pipe_close( void* hwpipe );
  */
 extern void android_pipe_wake( void* hwpipe, unsigned flags );
 
+#endif // USE_ANDROID_EMU
+
 /* The following definitions must match those in the kernel driver:
  *
  * For goldfish:
@@ -230,7 +240,6 @@ extern void android_throttle_init(void);
 extern void android_adb_dbg_backend_init(void);
 extern void android_adb_backend_init(void);
 extern void android_sensors_init(void);
-
-extern bool adb_server_init(int port);
+extern void android_net_pipes_init(void);
 
 #endif /* _HW_ANDROID_PIPE_H */

@@ -69,11 +69,17 @@
 #include "exec/cpu_ldst.h"
 #include "qmp-commands.h"
 #include "hmp.h"
+#ifdef CONFIG_ANDROID
 #include "android-console.h"
+#endif
 #include "qemu/thread.h"
 #include "block/qapi.h"
 #include "qapi/qmp-event.h"
 #include "qapi-event.h"
+#ifdef USE_ANDROID_EMU
+#include "android/utils/file_io.h"
+#include "android/console_auth.h"
+#endif  // USE_ANDROID_EMU
 
 /* for pic/irq_info */
 #if defined(TARGET_SPARC)
@@ -171,6 +177,8 @@ typedef struct MonitorQAPIEventState {
 
 typedef void MonitorErrorPrintFn(struct Monitor *mon, const char *fmt, ...);
 
+typedef void MonitorConnectFn(struct Monitor *mon);
+
 struct Monitor {
     CharDriverState *chr;
     int reset_seen;
@@ -201,6 +209,8 @@ struct Monitor {
     const char *prompt;
     const char *banner;
     MonitorErrorPrintFn *print_error;
+    MonitorConnectFn *connect_handler;
+    bool authorized;
     QLIST_HEAD(,mon_fd_t) fds;
     QLIST_ENTRY(Monitor) entry;
 };
@@ -217,7 +227,9 @@ static int mon_refcount;
 
 static mon_cmd_t mon_cmds[];
 static mon_cmd_t info_cmds[];
+#ifdef CONFIG_ANDROID
 static mon_cmd_t android_cmds[];
+#endif
 
 static const mon_cmd_t qmp_cmds[];
 
@@ -911,6 +923,7 @@ static mon_cmd_t * get_command_table(Monitor *mon, cmd_table_t cmds)
     }
 }
 
+#ifdef CONFIG_ANDROID
 static void android_console_help(Monitor *mon, const QDict *qdict)
 {
     const char *name = qdict_get_try_str(qdict, "helptext");
@@ -984,6 +997,7 @@ static void android_console_help(Monitor *mon, const QDict *qdict)
         cmds = sub_cmds;
     }
 }
+#endif  // CONFIG_ANDROID
 
 static void do_trace_event_set_state(Monitor *mon, const QDict *qdict)
 {
@@ -3044,7 +3058,9 @@ static const mon_cmd_t qmp_cmds[] = {
     { /* NULL */ },
 };
 
+#ifdef CONFIG_ANDROID
 #include "android-commands.h"
+#endif  // CONFIG_ANDROID
 
 /*******************************************************************/
 
@@ -4318,7 +4334,7 @@ static void file_completion(Monitor *mon, const char *input)
             /* stat the file to find out if it's a directory.
              * In that case add a slash to speed up typing long paths
              */
-            if (stat(file, &sb) == 0 && S_ISDIR(sb.st_mode)) {
+            if (android_stat(file, &sb) == 0 && S_ISDIR(sb.st_mode)) {
                 pstrcat(file, sizeof(file), "/");
             }
             readline_add_completion(mon->rs, file);
@@ -5371,7 +5387,12 @@ static void monitor_event(void *opaque, int event)
         break;
 
     case CHR_EVENT_OPENED:
-        monitor_printf(mon, "%s\n", mon->banner);
+        if (mon->connect_handler) {
+            mon->connect_handler(mon);
+        } else {
+            monitor_printf(mon, "%s\n", mon->banner);
+        }
+
         if (!mon->mux_out) {
             readline_restart(mon->rs);
             readline_show_prompt(mon->rs);
@@ -5478,6 +5499,40 @@ static GArray * make_dynamic_table(mon_cmd_t *cmds)
     return cmd_array;
 }
 
+static void destroy_dynamic_table(GArray* cmd_array) {
+    int i = 0;
+    for (i = 0; i < cmd_array->len; i++) {
+        mon_cmd_t* cmd = &g_array_index(cmd_array, mon_cmd_t, i);
+        if (cmd->sub_cmds.dynamic_table) {
+            destroy_dynamic_table(cmd->sub_cmds.dynamic_table);
+        }
+    }
+
+    g_array_free(cmd_array, TRUE);
+}
+
+#ifdef CONFIG_ANDROID
+void android_connect_handler(Monitor* mon) {
+    // this is the first opportunity to handle new connections
+    mon->cmds.static_table = android_preauth_cmds;
+    int console_auth_status = android_console_auth_get_status();
+    switch (console_auth_status) {
+    case CONSOLE_AUTH_STATUS_DISABLED:
+        mon->cmds.static_table = android_cmds;
+        mon->banner = android_console_help_banner_get();
+        monitor_printf(mon, "%s\n", mon->banner);
+        break;
+    case CONSOLE_AUTH_STATUS_REQUIRED:
+        mon->banner = android_console_auth_banner_get();
+        monitor_printf(mon, "%s\n", mon->banner);
+        break;
+    case CONSOLE_AUTH_STATUS_ERROR:
+        monitor_disconnect(mon);
+        break;
+    }
+}
+#endif
+
 Monitor * monitor_init(CharDriverState *chr, int flags)
 {
     static int is_first_init = 1;
@@ -5495,13 +5550,37 @@ Monitor * monitor_init(CharDriverState *chr, int flags)
     mon->banner =
         "QEMU " QEMU_VERSION " monitor - type 'help' for more information";
     mon->print_error = monitor_printf;
+    mon->connect_handler = 0;
+    mon->authorized = false;
 
+#ifdef CONFIG_ANDROID
     if (flags & MONITOR_ANDROID_CONSOLE) {
-        mon->cmds.static_table = android_cmds;
+        mon->cmds.static_table = android_preauth_cmds;
         mon->prompt = "";
-        mon->banner = "Android Console: type 'help' for a list of commands";
+        mon->connect_handler = android_connect_handler;
+
+        int console_auth_status = android_console_auth_get_status();
+        switch (console_auth_status) {
+            case CONSOLE_AUTH_STATUS_ERROR:
+            mon->banner = "";
+
+            // banners don't get sent reliably, output error message on
+            // console
+            char* emulator_console_auth_token_path =
+                android_console_auth_token_path_dup();
+            fprintf(stderr,
+                    "ERROR: Unable to access '%s' emulator console will "
+                    "not work\n",
+                    emulator_console_auth_token_path);
+            free(emulator_console_auth_token_path);
+            break;
+            case CONSOLE_AUTH_STATUS_DISABLED:
+                mon->cmds.static_table = android_cmds;
+                break;
+        }
         mon->print_error = android_monitor_print_error;
     }
+#endif  // CONFIG_ANDROID
 
     if (flags & MONITOR_DYNAMIC_CMDS) {
         mon->cmds.dynamic_table = make_dynamic_table(mon->cmds.static_table);
@@ -5538,6 +5617,19 @@ Monitor * monitor_init(CharDriverState *chr, int flags)
         default_mon = mon;
 
     return mon;
+}
+
+void monitor_set_command_table(Monitor* mon, mon_cmd_t* cmds) {
+    if (mon->flags & MONITOR_DYNAMIC_CMDS) {
+        destroy_dynamic_table(mon->cmds.dynamic_table);
+        mon->cmds.dynamic_table = make_dynamic_table(mon->cmds.static_table);
+    } else {
+        mon->cmds.static_table = cmds;
+    }
+}
+
+mon_cmd_t* monitor_get_android_cmds() {
+    return android_cmds;
 }
 
 static void bdrv_password_cb(void *opaque, const char *password,

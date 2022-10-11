@@ -14,17 +14,19 @@
  * GNU General Public License for more details.
  */
 
+#if defined(USE_ANDROID_EMU)
+#include "android/globals.h"  /* for android_hw */
+#include "android-qemu2-glue/qemu-control-impl.h"
+#include "android/multitouch-screen.h"
+#endif
+
 #include "hw/sysbus.h"
 #include "ui/input.h"
 #include "ui/console.h"
+#include "hw/input/android_keycodes.h"
 #include "hw/input/linux_keycodes.h"
 
 #include "hw/input/goldfish_events.h"
-
-/* Multitouch specific code is defined out via EVDEV_MULTITOUCH currently,
- * because upstream has no multitouch related APIs.
- */
-/* #define EVDEV_MULTITOUCH */
 
 #define MAX_EVENTS (256 * 4)
 
@@ -157,7 +159,7 @@ static const GoldfishEventCodeInfo ev_rel_codes_table[] = {
 #define BTN_TOOL_TRIPLETAP 0x14e
 #define BTN_WHEEL 0x150
 #define BTN_GEAR_DOWN 0x150
-#define BTN_GEAR_UP  0x150
+#define BTN_GEAR_UP  0x151
 
 #define KEY_CODE(_name, _val) {#_name, _val}
 #define BTN_CODE(_code) {#_code, (_code)}
@@ -403,6 +405,8 @@ static const GoldfishEventCodeInfo ev_key_codes_table[] = {
     KEY_CODE(KEY_PLUS, LINUX_KEY_PLUS),
     KEY_CODE(KEY_NOTIFICATION, LINUX_KEY_NOTIFICATION),
 
+    KEY_CODE(KEY_APPSWITCH, ANDROID_KEY_APPSWITCH),
+
     BTN_CODE(BTN_MISC),
     BTN_CODE(BTN_0),
     BTN_CODE(BTN_1),
@@ -642,6 +646,7 @@ static void enqueue_event(GoldfishEvDevState *s,
     s->last = (s->last + 1) & (MAX_EVENTS-1);
     s->events[s->last] = value;
     s->last = (s->last + 1) & (MAX_EVENTS-1);
+
 }
 
 static unsigned dequeue_event(GoldfishEvDevState *s)
@@ -789,19 +794,18 @@ static void gf_evdev_put_mouse(void *opaque,
 {
     GoldfishEvDevState *s = (GoldfishEvDevState *)opaque;
 
-    /* Note that unlike the "classic" Android emulator, we don't
-     * have the "dz == 0 for touchscreen, == 1 for trackball"
-     * distinction.
+#ifdef USE_ANDROID_EMU
+    /* Note that, like the "classic" Android emulator, we
+     * have dz == 0 for touchscreen, == 1 for trackball
      */
-#ifdef EVDEV_MULTITOUCH
-    if (s->have_multitouch) {
+    if (s->have_multitouch  &&  dz == 0) {
         /* Convert mouse event into multi-touch event */
-        multitouch_update_pointer(MTES_MOUSE, 0, dx, dy,
-                                  (buttons_state & 1) ? 0x81 : 0);
+        multitouch_update_pointer(MTES_DEVICE, (buttons_state & 2) ? 1 : 0, dx, dy,
+                                      (buttons_state & 1) ? 0x81 : 0);
         return;
     }
 #endif
-    if (s->have_touch) {
+    if (s->have_touch  &&  dz == 0) {
         enqueue_event(s, EV_ABS, ABS_X, dx);
         enqueue_event(s, EV_ABS, ABS_Y, dy);
         enqueue_event(s, EV_ABS, ABS_Z, dz);
@@ -809,7 +813,7 @@ static void gf_evdev_put_mouse(void *opaque,
         enqueue_event(s, EV_SYN, 0, 0);
         return;
     }
-    if (s->have_trackball) {
+    if (s->have_trackball  &&  dz == 1) {
         enqueue_event(s, EV_REL, REL_X, dx);
         enqueue_event(s, EV_REL, REL_Y, dy);
         enqueue_event(s, EV_SYN, 0, 0);
@@ -907,23 +911,23 @@ static const int dpad_map[Q_KEY_CODE_MAX] = {
 static void gf_evdev_handle_keyevent(DeviceState *dev, QemuConsole *src,
                                      InputEvent *evt)
 {
-    /* Handle a key event. Minimal implementation which just handles
-     * the required hardware buttons and the dpad.
-     * This should be extended to also honour have_keyboard, and
-     * possibly also the control keys which affect the emulator itself.
-     */
 
     GoldfishEvDevState *s = GOLDFISHEVDEV(dev);
-    int qcode;
     int lkey = 0;
     int mod;
 
     assert(evt->kind == INPUT_EVENT_KIND_KEY);
 
-    qcode = qemu_input_key_value_to_qcode(evt->key->key);
+    KeyValue* kv = evt->key->key;
+
+    int qcode = kv->qcode;
+
+    enqueue_event(s, EV_KEY, qcode, evt->key->down);
+
+    int qemu2_qcode = qemu_input_key_value_to_qcode(evt->key->key);
 
     /* Keep our modifier state up to date */
-    switch (qcode) {
+    switch (qemu2_qcode) {
     case Q_KEY_CODE_SHIFT:
     case Q_KEY_CODE_SHIFT_R:
         mod = MODSTATE_SHIFT;
@@ -952,15 +956,15 @@ static void gf_evdev_handle_keyevent(DeviceState *dev, QemuConsole *src,
     if (s->modifier_state & MODSTATE_ALT) {
         /* No alt-keys defined currently */
     } else if (s->modifier_state & MODSTATE_CTRL) {
-        lkey = hardbutton_control_map[qcode];
+        lkey = hardbutton_control_map[qemu2_qcode];
     } else if (s->modifier_state & MODSTATE_SHIFT) {
-        lkey = hardbutton_shift_map[qcode];
+        lkey = hardbutton_shift_map[qemu2_qcode];
     } else {
-        lkey = hardbutton_map[qcode];
+      lkey = hardbutton_map[qemu2_qcode];
     }
 
     if (!lkey && s->have_dpad && s->modifier_state == 0) {
-        lkey = dpad_map[qcode];
+        lkey = dpad_map[qemu2_qcode];
     }
 
     if (lkey) {
@@ -1099,11 +1103,30 @@ static void gf_evdev_init(Object *obj)
     sysbus_init_irq(sbd, &s->irq);
 
     qemu_input_handler_register(dev, &gf_evdev_key_input_handler);
+    // Register the mouse handler for both absolute and relative position
+    // reports. (Relative reports are used in trackball mode.)
     qemu_add_mouse_event_handler(gf_evdev_put_mouse, s, 1, "goldfish-events");
+    qemu_add_mouse_event_handler(gf_evdev_put_mouse, s, 0, "goldfish-events-rel");
+
+#if defined(USE_ANDROID_EMU)
+    s->have_dpad = android_hw->hw_dPad;
+    s->have_trackball = android_hw->hw_trackBall;
+
+    s->have_camera = strcmp(android_hw->hw_camera_back, "none") ||
+                     strcmp(android_hw->hw_camera_front, "none");
+
+    s->have_keyboard = android_hw->hw_keyboard;
+    s->have_keyboard_lid = android_hw->hw_keyboard_lid;
+
+    s->have_touch = androidHwConfig_isScreenTouch(android_hw);
+    s->have_multitouch = androidHwConfig_isScreenMultiTouch(android_hw);
+#endif
+
 }
 
 static void gf_evdev_realize(DeviceState *dev, Error **errp)
 {
+
     GoldfishEvDevState *s = GOLDFISHEVDEV(dev);
 
     /* Initialize the device ID so the event dev can be looked up duringi
@@ -1118,10 +1141,6 @@ static void gf_evdev_realize(DeviceState *dev, Error **errp)
 
     /* XXX PMM properties ? */
     s->name = "qwerty2";
-
-    if (s->have_multitouch) {
-        s->have_touch = true;
-    }
 
     /* configure EV_KEY array
      *
@@ -1154,6 +1173,8 @@ static void gf_evdev_realize(DeviceState *dev, Error **errp)
     events_set_bit(s, EV_KEY, LINUX_KEY_SOFT2);
     events_set_bit(s, EV_KEY, LINUX_KEY_POWER);
     events_set_bit(s, EV_KEY, LINUX_KEY_SEARCH);
+
+    events_set_bit(s, EV_KEY, ANDROID_KEY_APPSWITCH);
 
     if (s->have_dpad) {
         events_set_bit(s, EV_KEY, LINUX_KEY_DOWN);
@@ -1216,7 +1237,7 @@ static void gf_evdev_realize(DeviceState *dev, Error **errp)
      *
      * EV_ABS events are sent when the touchscreen is pressed
      */
-    if (s->have_touch) {
+    if (s->have_touch || s->have_multitouch) {
         ABSEntry *abs_values;
 
         events_set_bit(s, EV_SYN, EV_ABS);
@@ -1244,7 +1265,6 @@ static void gf_evdev_realize(DeviceState *dev, Error **errp)
         abs_values[ABS_Y].max = 0x7fff;
         abs_values[ABS_Z].max = 1;
 
-#ifdef EVDEV_MULTITOUCH
         if (s->have_multitouch) {
             /*
              * Setup multitouch.
@@ -1256,6 +1276,7 @@ static void gf_evdev_realize(DeviceState *dev, Error **errp)
             events_set_bit(s, EV_ABS, ABS_MT_TOUCH_MAJOR);
             events_set_bit(s, EV_ABS, ABS_MT_PRESSURE);
 
+#ifdef USE_ANDROID_EMU
             abs_values[ABS_MT_SLOT].max = multitouch_get_max_slot();
             abs_values[ABS_MT_TRACKING_ID].max
                 = abs_values[ABS_MT_SLOT].max + 1;
@@ -1264,8 +1285,8 @@ static void gf_evdev_realize(DeviceState *dev, Error **errp)
             /* TODO : make next 2 less random */
             abs_values[ABS_MT_TOUCH_MAJOR].max = 0x7fffffff;
             abs_values[ABS_MT_PRESSURE].max = 0x100;
+#endif  // USE_ANDROID_EMU
         }
-#endif
     }
 
     /* configure EV_SW array
@@ -1280,6 +1301,12 @@ static void gf_evdev_realize(DeviceState *dev, Error **errp)
         events_set_bit(s, EV_SYN, EV_SW);
         events_set_bit(s, EV_SW, 0);
     }
+
+#if defined(USE_ANDROID_EMU)
+    // The android control agent might fire buffered events to the device, so
+    // ensure that it is enabled after the initialization is complete.
+    qemu_control_setEventDevice(s);
+#endif
 }
 
 static void gf_evdev_reset(DeviceState *dev)
@@ -1301,9 +1328,9 @@ static Property gf_evdev_props[] = {
     DEFINE_PROP_BOOL("have-lidswitch", GoldfishEvDevState,
                      have_keyboard_lid, false),
     DEFINE_PROP_BOOL("have-touch", GoldfishEvDevState,
-                     have_touch, true),
+                     have_touch, false),
     DEFINE_PROP_BOOL("have-multitouch", GoldfishEvDevState,
-                     have_multitouch, false),
+                     have_multitouch, true),
     DEFINE_PROP_END_OF_LIST()
 };
 

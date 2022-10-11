@@ -9,6 +9,8 @@
 #include "qapi-types.h"
 #include "qapi/error.h"
 
+#include <stdbool.h>
+
 /* keyboard/mouse support */
 
 #define MOUSE_EVENT_LBUTTON 0x01
@@ -48,6 +50,8 @@ void qemu_remove_led_event_handler(QEMUPutLEDEntry *entry);
 
 void kbd_put_ledstate(int ledstate);
 
+void kbd_mouse_event(int dx, int dy, int dz, int buttonsState);
+
 struct MouseTransformInfo {
     /* Touchscreen resolution */
     int x;
@@ -85,6 +89,7 @@ void kbd_put_keysym_console(QemuConsole *s, int keysym);
 bool kbd_put_qcode_console(QemuConsole *s, int qcode);
 void kbd_put_string_console(QemuConsole *s, const char *str, int len);
 void kbd_put_keysym(int keysym);
+void kbd_put_keycode(int keycode, bool down);
 
 /* consoles */
 
@@ -184,6 +189,14 @@ struct DisplayChangeListener {
     QLIST_ENTRY(DisplayChangeListener) next;
 };
 
+struct DisplayUpdateListener {
+    void* opaque;
+    QemuConsole* con;
+
+    void (*dpy_gfx_update)(DisplayUpdateListener *dcl,
+                           int x, int y, int w, int h);
+};
+
 DisplayState *init_displaystate(void);
 DisplaySurface *qemu_create_displaysurface_from(int width, int height,
                                                 pixman_format_code_t format,
@@ -213,6 +226,8 @@ static inline int is_buffer_shared(DisplaySurface *surface)
     return !(surface->flags & QEMU_ALLOCATED_FLAG);
 }
 
+void register_displayupdatelistener(DisplayUpdateListener *dul);
+
 void register_displaychangelistener(DisplayChangeListener *dcl);
 void update_displaychangelistener(DisplayChangeListener *dcl,
                                   uint64_t interval);
@@ -235,6 +250,9 @@ void dpy_gfx_update_dirty(QemuConsole *con,
                           MemoryRegion *address_space,
                           uint64_t base,
                           bool invalidate);
+
+// run the display update and input processing ASAP
+void dpy_run_update(QemuConsole* con);
 
 static inline int surface_stride(DisplaySurface *s)
 {
@@ -321,7 +339,7 @@ DisplaySurface *qemu_console_surface(QemuConsole *con);
 DisplayState *qemu_console_displaystate(QemuConsole *console);
 
 /* sdl.c */
-void sdl_display_init(DisplayState *ds, int full_screen, int no_frame);
+bool sdl_display_init(DisplayState *ds, int full_screen, int no_frame);
 
 /* cocoa.m */
 void cocoa_display_init(DisplayState *ds, int full_screen);

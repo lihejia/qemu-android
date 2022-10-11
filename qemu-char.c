@@ -736,7 +736,76 @@ int send_all(int fd, const void *buf, int len1)
     return len1 - len;
 }
 
+int recv_all(int fd, void *_buf, int len1, bool single_read)
+{
+    int ret, len;
+    char *buf = _buf;
+
+    len = len1;
+    while (len > 0) {
+        ret = recv(fd, buf, len, 0);
+        if (ret < 0) {
+            errno = WSAGetLastError();
+            if (errno != WSAEWOULDBLOCK) {
+                return -1;
+            }
+            continue;
+        } else {
+            if (single_read) {
+                return ret;
+            }
+            buf += ret;
+            len -= ret;
+        }
+    }
+    return len1 - len;
+}
+
 #else
+
+int opengl_send_all(int fd, const void *_buf, int len1)
+{
+    int ret, len;
+    const uint8_t *buf = _buf;
+
+    len = len1;
+    while (len > 0) {
+        ret = write(fd, buf, len);
+        if (ret < 0) {
+            if (errno != EINTR)
+                return -1;
+        } else if (ret == 0) {
+            break;
+        } else {
+            buf += ret;
+            len -= ret;
+        }
+    }
+    return len1 - len;
+}
+
+int opengl_recv_all(int fd, void *_buf, int len1, bool single_read)
+{
+    int ret, len;
+    uint8_t *buf = _buf;
+
+    len = len1;
+    while ((len > 0) && (ret = recv(fd, buf, len, 0)) != 0) {
+        if (ret < 0) {
+            if (errno != EINTR) {
+                return -1;
+            }
+            continue;
+        } else {
+            if (single_read) {
+                return ret;
+            }
+            buf += ret;
+            len -= ret;
+        }
+    }
+    return len1 - len;
+}
 
 int send_all(int fd, const void *_buf, int len1)
 {
@@ -765,7 +834,7 @@ int recv_all(int fd, void *_buf, int len1, bool single_read)
     uint8_t *buf = _buf;
 
     len = len1;
-    while ((len > 0) && (ret = read(fd, buf, len)) != 0) {
+    while ((len > 0) && (ret = recv(fd, buf, len, 0)) != 0) {
         if (ret < 0) {
             if (errno != EINTR && errno != EAGAIN) {
                 return -1;
@@ -2197,6 +2266,24 @@ static void win_stdio_wait_func(void *opaque)
     DWORD              dwSize;
     int                i;
 
+    // On Windows QEMU may share its console window with other processes,
+    // e.g. cmd.exe which launched it. This means we can't be sure that
+    // any console event we were told about is still there (other process may
+    // have already handled it), and instead of getting the event QEMU might
+    // just block on the following ReadConsoleInput() call.
+    // So let's first check if there's anything left to read.
+    DWORD eventCount = 0;
+    BOOL getRet = GetNumberOfConsoleInputEvents(stdio->hStdIn, &eventCount);
+    if (!getRet) {
+        fprintf(stderr, "GetNumberOfConsoleInputEvents() API call failed,"
+                        " code %d\n", GetLastError());
+        return;
+    }
+    if (eventCount == 0) {
+        // we're too late, nothing to read
+        return;
+    }
+
     ret = ReadConsoleInput(stdio->hStdIn, buf, ARRAY_SIZE(buf), &dwSize);
 
     if (!ret) {
@@ -3089,12 +3176,12 @@ static bool qemu_chr_open_socket_fd(CharDriverState *chr, Error **errp)
     int fd;
 
     if (s->is_listen) {
-        fd = socket_listen(s->addr, errp);
+        fd = socket_listen_addr(s->addr, errp);
     } else if (s->reconnect_time) {
-        fd = socket_connect(s->addr, errp, qemu_chr_socket_connected, chr);
+        fd = socket_connect_addr(s->addr, errp, qemu_chr_socket_connected, chr);
         return fd >= 0;
     } else {
-        fd = socket_connect(s->addr, errp, NULL, NULL);
+        fd = socket_connect_addr(s->addr, errp, NULL, NULL);
     }
     if (fd < 0) {
         return false;

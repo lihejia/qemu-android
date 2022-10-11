@@ -16,6 +16,11 @@
 #include <assert.h>
 #include <limits.h>
 
+#if defined(CONFIG_ANDROID) && defined(USE_ANDROID_EMU)
+#include "android-qemu2-glue/looper-qemu.h"
+#include "android/crashreport/crash-handler.h"
+#endif
+
 static bool name_threads;
 
 void qemu_thread_naming(bool enable)
@@ -33,8 +38,14 @@ static void error_exit(int err, const char *msg)
     FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_ALLOCATE_BUFFER,
                   NULL, err, 0, (LPTSTR)&pstr, 2, NULL);
     fprintf(stderr, "qemu: %s: %s\n", msg, pstr);
+#ifdef USE_ANDROID_EMU
+    crashhandler_die_format(
+                "Internal error in %s: %s (%d)",
+                msg, pstr, err);
+#else
     LocalFree(pstr);
     abort();
+#endif
 }
 
 void qemu_mutex_init(QemuMutex *mutex)
@@ -288,6 +299,10 @@ static unsigned __stdcall win32_start_routine(void *arg)
         data = NULL;
     }
     qemu_thread_data = data;
+#if defined(CONFIG_ANDROID) && defined(USE_ANDROID_EMU)
+    /* Ensure AndroidEmu timers and looper work correctly on this thread. */
+    qemu_looper_setForThread();
+#endif
     qemu_thread_exit(start_routine(thread_arg));
     abort();
 }

@@ -34,6 +34,10 @@
 #include "sysemu/sysemu.h"
 #include "qemu-options.h"
 
+#ifdef USE_ANDROID_EMU
+#include "android/skin/winsys.h"
+#endif
+
 /***********************************************************/
 /* Functions missing in mingw */
 
@@ -58,7 +62,14 @@ int setenv(const char *name, const char *value, int overwrite)
 
 static BOOL WINAPI qemu_ctrl_handler(DWORD type)
 {
+#ifdef USE_ANDROID_EMU
+    // In android, request closing the UI, instead of short-circuting down to
+    // qemu. This will eventually call qemu_system_shutdown_request via a skin
+    // event.
+    skin_winsys_quit_request();
+#else
     qemu_system_shutdown_request();
+#endif  // !USE_ANDROID_EMU
     /* Windows 7 kills application when the function returns.
        Sleep here to give QEMU a try for closing.
        Sleep period is 10000ms because Windows kills the program
@@ -127,4 +138,29 @@ int qemu_create_pidfile(const char *filename)
         return -1;
     }
     return 0;
+}
+
+char* strtok_r(char *str,
+               const char *delim,
+               char **nextp)
+{
+    char *ret;
+
+    if (str == NULL) {
+        str = *nextp;
+    }
+
+    str += strspn(str, delim);
+    if (*str == '\0') {
+        return NULL;
+    }
+
+    ret = str;
+    str += strcspn(str, delim);
+    if (*str) {
+        *str++ = '\0';
+    }
+
+    *nextp = str;
+    return ret;
 }

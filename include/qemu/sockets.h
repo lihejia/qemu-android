@@ -44,6 +44,9 @@ int socket_set_fast_reuse(int fd);
 int send_all(int fd, const void *buf, int len1);
 int recv_all(int fd, void *buf, int len1, bool single_read);
 
+int opengl_send_all(int fd, const void *buf, int len1);
+int opengl_recv_all(int fd, void *buf, int len1, bool single_read);
+
 /* callback function for nonblocking connect
  * valid fd on success, negative error code on failure
  */
@@ -73,9 +76,9 @@ int unix_nonblocking_connect(const char *str,
                              void *opaque, Error **errp);
 
 SocketAddress *socket_parse(const char *str, Error **errp);
-int socket_connect(SocketAddress *addr, Error **errp,
-                   NonBlockingConnectHandler *callback, void *opaque);
-int socket_listen(SocketAddress *addr, Error **errp);
+int socket_connect_addr(SocketAddress *addr, Error **errp,
+                        NonBlockingConnectHandler *callback, void *opaque);
+int socket_listen_addr(SocketAddress *addr, Error **errp);
 int socket_dgram(SocketAddress *remote, SocketAddress *local, Error **errp);
 
 /* Old, ipv4 only bits.  Don't use for new code. */

@@ -29,6 +29,7 @@
 #include "hw/qdev.h"
 #include "qemu/osdep.h"
 #include "sysemu/kvm.h"
+#include "sysemu/hax.h"
 #include "sysemu/sysemu.h"
 #include "hw/xen/xen.h"
 #include "qemu/timer.h"
@@ -52,6 +53,10 @@
 #include "exec/ram_addr.h"
 
 #include "qemu/range.h"
+
+#ifdef USE_ANDROID_EMU
+#include "android/error-messages.h"
+#endif
 
 //#define DEBUG_SUBPAGE
 
@@ -1313,10 +1318,32 @@ static ram_addr_t ram_block_add(RAMBlock *new_block, Error **errp)
         } else {
             new_block->host = phys_mem_alloc(new_block->length,
                                              &new_block->mr->align);
+#ifdef CONFIG_HAX
+            /*
+             * In Hax, the qemu allocate the virtual address, and HAX kernel
+             * populate the memory with physical memory. Currently we have no
+             * paging, so user should make sure enough free memory in advance
+             */
+            if (hax_enabled()) {
+                int ret;
+                ret = hax_populate_ram((uint64_t)(uintptr_t)new_block->host,
+                                       new_block->length);
+                if (ret < 0) {
+                    fprintf(stderr, "Hax failed to populate ram\n");
+                    exit(-1);
+                }
+            }
+#endif
             if (!new_block->host) {
+#ifdef USE_ANDROID_EMU
+                error_setg_errno(errp, errno, kNotEnoughMemForGuestError,
+                                 new_block->length / (1024.0 * 1024.0 * 1024.0),
+                                 memory_region_name(new_block->mr));
+#else  // !USE_ANDROID_EMU
                 error_setg_errno(errp, errno,
                                  "cannot set up guest memory '%s'",
                                  memory_region_name(new_block->mr));
+#endif  // USE_ANDROID_EMU
                 qemu_mutex_unlock_ramlist();
                 return -1;
             }

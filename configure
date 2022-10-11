@@ -258,6 +258,7 @@ xfs=""
 vhost_net="no"
 vhost_scsi="no"
 kvm="no"
+hax="no"
 rdma=""
 gprof="no"
 debug_tcg="no"
@@ -335,6 +336,7 @@ libssh2=""
 vhdx=""
 quorum=""
 numa=""
+android="no"
 
 # parse CC options first
 for opt do
@@ -560,6 +562,7 @@ CYGWIN*)
 ;;
 MINGW32*)
   mingw32="yes"
+  hax="yes"
   audio_possible_drivers="winwave dsound sdl fmod winaudio"
   audio_drv_list="winwave"
 ;;
@@ -603,6 +606,7 @@ OpenBSD)
 Darwin)
   bsd="yes"
   darwin="yes"
+  hax="yes"
   LDFLAGS_SHARED="-bundle -undefined dynamic_lookup"
   if [ "$cpu" = "x86_64" ] ; then
     QEMU_CFLAGS="-arch x86_64 $QEMU_CFLAGS"
@@ -922,6 +926,10 @@ for opt do
   ;;
   --enable-kvm) kvm="yes"
   ;;
+  --disable-hax) hax="no"
+  ;;
+  --enable-hax) hax="yes"
+  ;;
   --disable-tcg-interpreter) tcg_interpreter="no"
   ;;
   --enable-tcg-interpreter) tcg_interpreter="yes"
@@ -1129,6 +1137,8 @@ for opt do
   ;;
   --enable-numa) numa="yes"
   ;;
+  --enable-android) android="yes"
+  ;;
   *)
       echo "ERROR: unknown option $opt"
       echo "Try '$0 --help' for more information"
@@ -1318,6 +1328,8 @@ Advanced options (experts only):
   --disable-slirp          disable SLIRP userspace network connectivity
   --disable-kvm            disable KVM acceleration support
   --enable-kvm             enable KVM acceleration support
+  --disable-hax            disable HAX acceleration support
+  --enable-hax             enable HAX acceleration support
   --disable-rdma           disable RDMA-based migration support
   --enable-rdma            enable RDMA-based migration support
   --enable-tcg-interpreter enable TCG with bytecode interpreter (TCI)
@@ -1400,6 +1412,7 @@ Advanced options (experts only):
   --enable-quorum          enable quorum block filter support
   --disable-numa           disable libnuma support
   --enable-numa            enable libnuma support
+  --enable-android         enable Android support
 
 NOTE: The object files are built at the place where configure is launched
 EOF
@@ -4301,6 +4314,7 @@ echo "Linux AIO support $linux_aio"
 echo "ATTR/XATTR support $attr"
 echo "Install blobs     $blobs"
 echo "KVM support       $kvm"
+echo "HAX support       $hax"
 echo "RDMA support      $rdma"
 echo "TCG interpreter   $tcg_interpreter"
 echo "fdt support       $fdt"
@@ -4348,6 +4362,7 @@ echo "Quorum            $quorum"
 echo "lzo support       $lzo"
 echo "snappy support    $snappy"
 echo "NUMA host support $numa"
+echo "Android support   $android"
 
 if test "$sdl_too_old" = "yes"; then
 echo "-> Your SDL version is too old - please upgrade to have SDL support"
@@ -5178,6 +5193,15 @@ case "$target_name" in
       fi
     fi
 esac
+if test "$hax" = "yes" ; then
+  if test "$target_softmmu" = "yes" ; then
+    case "$target_name" in
+    i386|x86_64)
+      echo "CONFIG_HAX=y" >> $config_target_mak
+    ;;
+    esac
+  fi
+fi
 if test "$target_bigendian" = "yes" ; then
   echo "TARGET_WORDS_BIGENDIAN=y" >> $config_target_mak
 fi
@@ -5343,6 +5367,10 @@ fi
 
 if test "$numa" = "yes"; then
   echo "CONFIG_NUMA=y" >> $config_host_mak
+fi
+
+if test "$android" = "yes"; then
+  echo "CONFIG_ANDROID=y" >> $config_host_mak
 fi
 
 # build tree in object directory in case the source is not in the current directory

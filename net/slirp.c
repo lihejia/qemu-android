@@ -37,6 +37,11 @@
 #include "slirp/libslirp.h"
 #include "sysemu/char.h"
 
+#if defined(CONFIG_ANDROID) && defined(USE_ANDROID_EMU)
+#include "android/shaper.h"
+#include "android-qemu2-glue/net-android.h"
+#endif
+
 static int get_str_sep(char *buf, int buf_size, const char **pp, int sep)
 {
     const char *p, *p1;
@@ -101,16 +106,24 @@ static inline void slirp_smb_cleanup(SlirpState *s) { }
 
 void slirp_output(void *opaque, const uint8_t *pkt, int pkt_len)
 {
+#if defined(CONFIG_ANDROID) && defined(USE_ANDROID_EMU)
+    netshaper_send(slirp_shaper_out, (void*)pkt, pkt_len);
+#else
     SlirpState *s = opaque;
 
     qemu_send_packet(&s->nc, pkt, pkt_len);
+#endif
 }
 
 static ssize_t net_slirp_receive(NetClientState *nc, const uint8_t *buf, size_t size)
 {
+#if defined(CONFIG_ANDROID) && defined(USE_ANDROID_EMU)
+    netshaper_send(slirp_shaper_in, (char*)buf, size);
+#else
     SlirpState *s = DO_UPCAST(SlirpState, nc, nc);
 
     slirp_input(s->slirp, buf, size);
+#endif
 
     return size;
 }
@@ -265,6 +278,10 @@ static int net_slirp_init(NetClientState *peer, const char *model,
         if (slirp_smb(s, smb_export, smbsrv) < 0)
             goto error;
     }
+#endif
+
+#if defined(CONFIG_ANDROID) && defined(USE_ANDROID_EMU)
+    slirp_init_shapers(s, &s->nc, s->slirp);
 #endif
 
     return 0;
@@ -810,3 +827,6 @@ int net_slirp_parse_legacy(QemuOptsList *opts_list, const char *optarg, int *ret
     return 1;
 }
 
+int net_slirp_is_inited() {
+    return !QTAILQ_EMPTY(&slirp_stacks);
+}

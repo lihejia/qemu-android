@@ -18,8 +18,14 @@
 #include "elf.h"
 #include "hw/intc/goldfish_pic.h"
 #include "hw/irq.h"
-#include "hw/display/goldfish_fb.h"
-#include "hw/input/goldfish_sensors.h"
+
+#ifdef CONFIG_ANDROID
+#ifdef USE_ANDROID_EMU
+#include "android/android.h"
+#else
+#include "android-console.h"
+#endif
+#endif  // CONFIG_ANDROID
 
 #define PHYS_TO_VIRT(x) ((x) | ~(target_ulong)0x7fffffff)
 
@@ -104,44 +110,6 @@ struct machine_params {
     MIPSCPU *cpu;
 } ranchu_params;
 
-static int ranchu_rotation_state = 0;       /* 0-3 */
-
-static void android_console_rotate_screen(Monitor *mon, const QDict *qdict)
-{
-    ranchu_rotation_state = ((ranchu_rotation_state + 1) % 4);
-    goldfish_sensors_set_rotation(ranchu_rotation_state);
-    /* The mapping between QEMU and Android's idea of rotation are
-       reversed */
-    switch (ranchu_rotation_state) {
-    case 0:
-        goldfish_fb_set_rotation(0);
-        graphic_rotate = 0;
-        break;
-    case 1:
-        goldfish_fb_set_rotation(3);
-        graphic_rotate = 90;
-        break;
-    case 2:
-        goldfish_fb_set_rotation(2);
-        graphic_rotate = 180;
-        break;
-    case 3:
-        goldfish_fb_set_rotation(1);
-        graphic_rotate = 270;
-        break;
-    default:
-        g_assert_not_reached();
-    }
-}
-
-static mon_cmd_t rotate_cmd = {
-    .name = "rotate",
-    .args_type = "",
-    .params = "",
-    .help = "rotate the screen by 90 degrees",
-    .mhandler.cmd = android_console_rotate_screen,
-};
-
 static void main_cpu_reset(void* opaque1)
 {
     struct machine_params *opaque = (struct machine_params *)opaque1;
@@ -194,10 +162,10 @@ static void initialize_console_and_adb(void)
      * consecutive TCP ports starting from 5555 and working up until
      * we manage to open both connections.
      */
-    int baseport = ANDROID_CONSOLE_BASEPORT;
+    int baseport = (android_base_port > ANDROID_CONSOLE_BASEPORT) ?
+        android_base_port : ANDROID_CONSOLE_BASEPORT;
     int tries = MAX_ANDROID_EMULATORS;
     CharDriverState *chr;
-    struct Monitor* android_monitor;
 
     for (; tries > 0; tries--, baseport += 2) {
         chr = try_to_create_console_chardev(baseport);
@@ -205,7 +173,7 @@ static void initialize_console_and_adb(void)
             continue;
         }
 
-        if (!adb_server_init(baseport + 1)) {
+        if (!qemu2_adb_server_init(baseport + 1)) {
             qemu_chr_delete(chr);
             chr = NULL;
             continue;
@@ -216,12 +184,8 @@ static void initialize_console_and_adb(void)
          * "-mon chardev=private-chardev,mode=android-console"
          */
         /* monitor_init(chr, MONITOR_ANDROID_CONSOLE | MONITOR_USE_READLINE); */
-        android_monitor = monitor_init(chr,
-                                       MONITOR_ANDROID_CONSOLE |
-                                       MONITOR_USE_READLINE |
-                                       MONITOR_DYNAMIC_CMDS);
-        monitor_add_command(android_monitor,
-                            &rotate_cmd);
+        monitor_init(chr, MONITOR_ANDROID_CONSOLE | MONITOR_USE_READLINE);
+        android_base_port = baseport;
 
         printf("console on port %d, ADB on port %d\n", baseport, baseport + 1);
         return;

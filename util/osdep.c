@@ -53,6 +53,7 @@ static bool fips_enabled = false;
 
 static const char *qemu_version = QEMU_VERSION;
 
+#if !defined(USE_ANDROID_EMU)
 int socket_set_cork(int fd, int v)
 {
 #if defined(SOL_TCP) && defined(TCP_CORK)
@@ -67,6 +68,7 @@ int socket_set_nodelay(int fd)
     int v = 1;
     return qemu_setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &v, sizeof(v));
 }
+#endif
 
 int qemu_madvise(void *addr, size_t len, int advice)
 {

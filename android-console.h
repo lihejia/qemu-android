@@ -18,9 +18,20 @@
 
 #ifndef ANDROID_CONSOLE_H
 #define ANDROID_CONSOLE_H
-
+#ifdef USE_ANDROID_EMU
+#include "android/emulation/control/battery_agent.h"
+#include "android/emulation/control/finger_agent.h"
+#include "android/emulation/control/location_agent.h"
+#include "android/emulation/control/net_agent.h"
+#include "android/emulation/control/user_event_agent.h"
+#include "android/emulation/control/vm_operations.h"
+#include "android/telephony/modem_driver.h"
+#endif
 #include "qemu-common.h"
 
+extern int android_base_port;
+
+void android_console_crash(Monitor *mon, const QDict *qdict);
 void android_console_kill(Monitor *mon, const QDict *qdict);
 void android_console_quit(Monitor *mon, const QDict *qdict);
 void android_console_redir(Monitor *mon, const QDict *qdict);
@@ -42,6 +53,8 @@ void android_console_event_send(Monitor *mon, const QDict *qdict);
 void android_console_event_text(Monitor *mon, const QDict *qdict);
 void android_console_event(Monitor *mon, const QDict *qdict);
 
+void android_console_auth(Monitor* mon, const QDict* qdict);
+
 void android_console_avd_stop(Monitor *mon, const QDict *qdict);
 void android_console_avd_start(Monitor *mon, const QDict *qdict);
 void android_console_avd_status(Monitor *mon, const QDict *qdict);
@@ -52,7 +65,49 @@ void android_console_avd_snapshot_save(Monitor *mon, const QDict *qdict);
 void android_console_avd_snapshot_load(Monitor *mon, const QDict *qdict);
 void android_console_avd_snapshot_del(Monitor *mon, const QDict *qdict);
 void android_console_avd(Monitor *mon, const QDict *qdict);
+void android_console_avd_preauth(Monitor* mon, const QDict* qdict);
+
+void android_console_finger_touch(Monitor *mon, const QDict *qdict);
+void android_console_finger_remove(Monitor *mon, const QDict *qdict);
+void android_console_finger(Monitor *mon, const QDict *qdict);
+
+void android_console_geo_nmea(Monitor *mon, const QDict *qdict);
+void android_console_geo_fix(Monitor *mon, const QDict *qdict);
+void android_console_geo(Monitor *mon, const QDict *qdict);
+
+void android_console_sms_send(Monitor *mon, const QDict *qdict);
+void android_console_sms_pdu(Monitor *mon, const QDict *qdict);
+void android_console_sms(Monitor *mon, const QDict *qdict);
+
+void android_console_cdma_ssource(Monitor *mon, const QDict *qdict);
+void android_console_cdma_prl_version(Monitor *mon, const QDict *qdict);
+void android_console_cdma(Monitor *mon, const QDict *qdict);
+
+void android_console_gsm_list(Monitor *mon, const QDict *qdict);
+void android_console_gsm_call(Monitor *mon, const QDict *qdict);
+void android_console_gsm_busy(Monitor *mon, const QDict *qdict);
+void android_console_gsm_hold(Monitor *mon, const QDict *qdict);
+void android_console_gsm_accept(Monitor *mon, const QDict *qdict);
+void android_console_gsm_cancel(Monitor *mon, const QDict *qdict);
+void android_console_gsm_data(Monitor *mon, const QDict *qdict);
+void android_console_gsm_voice(Monitor *mon, const QDict *qdict);
+void android_console_gsm_status(Monitor *mon, const QDict *qdict);
+void android_console_gsm_signal(Monitor *mon, const QDict *qdict);
+void android_console_gsm(Monitor *mon, const QDict *qdict);
+
+void android_console_rotate_screen(Monitor *mon, const QDict *qdict);
 
 void android_monitor_print_error(Monitor *mon, const char *fmt, ...);
 
+const char* android_console_auth_banner_get();
+const char* android_console_help_banner_get();
+
+#ifdef USE_ANDROID_EMU
+void qemu2_android_console_setup( const QAndroidBatteryAgent* battery_agent,
+        const QAndroidFingerAgent* finger_agent,
+        const QAndroidLocationAgent* location_agent,
+        const QAndroidUserEventAgent* user_event_agent,
+        const QAndroidVmOperations* vm_operations,
+        const QAndroidNetAgent* net_agent);
+#endif
 #endif

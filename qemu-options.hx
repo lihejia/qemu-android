@@ -172,8 +172,8 @@ Set default value of @var{driver}'s property @var{prop} to @var{value}, e.g.:
 qemu-system-i386 -global ide-drive.physical_block_size=4096 -drive file=file,if=ide,index=0,media=disk
 @end example
 
-In particular, you can use this to set driver properties for devices which are 
-created automatically by the machine model. To create a device which is not 
+In particular, you can use this to set driver properties for devices which are
+created automatically by the machine model. To create a device which is not
 created automatically and set properties on it, use -@option{device}.
 ETEXI
 
@@ -2919,6 +2919,17 @@ Enable KVM full virtualization support. This option is only available
 if KVM support is enabled when compiling.
 ETEXI
 
+DEF("enable-hax", 0, QEMU_OPTION_enable_hax, \
+    "-enable-hax     enable HAX virtualization support\n", QEMU_ARCH_I386)
+STEXI
+@item -enable-hax
+@findex -enable-hax
+Enable HAX (Hardware-based Acceleration eXecution) support. This option
+is only available if HAX support is enabled when compiling. HAX is only
+applicable to MAC and Windows platform, and thus does not conflict with
+KVM.
+ETEXI
+
 DEF("xen-domid", HAS_ARG, QEMU_OPTION_xen_domid,
     "-xen-domid id   specify xen guest domain id\n", QEMU_ARCH_ALL)
 DEF("xen-create", 0, QEMU_OPTION_xen_create,
@@ -3368,7 +3379,7 @@ DEF("dump-vmstate", HAS_ARG, QEMU_OPTION_dump_vmstate,
     "                Output vmstate information in JSON format to file.\n"
     "                Use the scripts/vmstate-static-checker.py file to\n"
     "                check for possible regressions in migration code\n"
-    "                by comparing two such vmstate dumps.",
+    "                by comparing two such vmstate dumps.\n",
     QEMU_ARCH_ALL)
 STEXI
 @item -dump-vmstate @var{file}
@@ -3376,6 +3387,84 @@ STEXI
 Dump json-encoded vmstate information for current machine type to file
 in @var{file}
 ETEXI
+
+#ifdef CONFIG_ANDROID
+
+DEF("netspeed", HAS_ARG, QEMU_OPTION_netspeed,
+    "-netspeed <speed> maximum network download/upload speeds\n", QEMU_ARCH_ALL)
+STEXI
+@item -netspeed @var{speed}
+@findex -netspeed
+Set a maximum network transfer speed, either as a network type or in kbit/s
+ETEXI
+
+DEF("netdelay", HAS_ARG, QEMU_OPTION_netdelay,
+    "-netdelay <delay> network latency emulation\n", QEMU_ARCH_ALL)
+STEXI
+@item -netdelay @var{delay}
+@findex -netdelay
+Set the network delay, either based on a network type or in milliseconds
+ETEXI
+
+DEF("netfast", 0, QEMU_OPTION_netfast,
+    "-netfast disable network shaping\n", QEMU_ARCH_ALL)
+STEXI
+@item -netfast
+@findex -netfast
+Disable network shaping to make network as fast as possible
+ETEXI
+
+DEF("boot-property", HAS_ARG, QEMU_OPTION_boot_property, \
+    "-boot-property <name>=<value> set system property on boot\n", QEMU_ARCH_ALL)
+STEXI
+@item -boot-property
+@findex -boot-property
+Set system property on boot
+ETEXI
+
+DEF("lcd-density", HAS_ARG, QEMU_OPTION_lcd_density,
+    "-lcd-density density\n"
+    "                select lcd display density value (default is 160)\n", QEMU_ARCH_ALL)
+STEXI
+@item -lcd-density density (integer value)
+@findex -lcd-density
+Select lcd display density value (default is 160)
+ETEXI
+
+DEF("http-proxy", HAS_ARG, QEMU_OPTION_http_proxy,
+    "-http-proxy <proxy> make TCP connections through a HTTP/HTTPS proxy\n", QEMU_ARCH_ALL)
+STEXI
+@item -http-proxy @var{proxy}
+@findex -http-proxy
+make TCP connections through a HTTP/HTTPS proxy
+ETEXI
+
+DEF("dns-server", HAS_ARG, QEMU_OPTION_dns_server,
+    "-dns-server <servers> use this DNS server(s) in the emulated system\n", QEMU_ARCH_ALL)
+STEXI
+@item -dns-server @var{servers}
+@findex -dns-server
+Use one or more DNS servers, separated by comma, in the emulated system
+ETEXI
+
+DEF("list-webcam", 0, QEMU_OPTION_list_webcam, \
+    "-list-webcam    list web cameras available for emulation\n", QEMU_ARCH_ALL)
+STEXI
+@item -list-webcam
+@findex -list-webcam
+List web cameras available for emulation
+ETEXI
+
+DEF("android-hw", HAS_ARG, QEMU_OPTION_android_hw,
+    "-android-hw <file>\n"
+    "                specify the hw config ini file location\n", QEMU_ARCH_ALL)
+STEXI
+@item -android-hw @var{file}
+@findex -android-hw
+Specify the hw config ini file location
+ETEXI
+
+#endif
 
 HXCOMM This is the last statement. Insert new options before this line!
 STEXI

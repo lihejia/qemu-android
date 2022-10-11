@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2013 The Android Open Source Project
+/* Copyright (C) 2007-2015 The Android Open Source Project
 **
 ** This software is licensed under the terms of the GNU General Public
 ** License version 2, as published by the Free Software Foundation, and
@@ -14,6 +14,8 @@
 #include "qemu/error-report.h"
 #include "monitor/monitor.h"
 #include "hw/misc/goldfish_battery.h"
+
+#include <assert.h>
 
 enum {
 	/* status register */
@@ -75,14 +77,19 @@ static const VMStateDescription goldfish_battery_vmsd = {
     }
 };
 
-void goldfish_battery_display(Monitor *mon)
+void goldfish_battery_display_cb(void* opaque, BatteryLineCallback callback)
 {
     DeviceState *dev = qdev_find_recursive(sysbus_get_default(),
                                            TYPE_GOLDFISH_BATTERY);
     struct goldfish_battery_state *s = GOLDFISH_BATTERY(dev);
     const char *value;
+    int size;
+    char buf[128] = {0};
 
-    monitor_printf(mon, "AC: %s\n", (s->ac_online) ? "online" : "offline");
+    size = snprintf(buf, sizeof(buf) - 1,
+                    "AC: %s\n", (s->ac_online) ? "online" : "offline");
+    assert(size > 0);
+    callback(opaque, buf, size);
 
     switch (s->status) {
     case POWER_SUPPLY_STATUS_CHARGING:
@@ -100,7 +107,10 @@ void goldfish_battery_display(Monitor *mon)
     default:
         value = "Unknown";
     }
-    monitor_printf(mon, "status: %s\n", value);
+
+    size = snprintf(buf, sizeof(buf) - 1, "status: %s\n", value);
+    assert(size > 0);
+    callback(opaque, buf, size);
 
     switch (s->health) {
     case POWER_SUPPLY_HEALTH_GOOD:
@@ -121,11 +131,64 @@ void goldfish_battery_display(Monitor *mon)
     default:
         value = "Unknown";
     }
-    monitor_printf(mon, "health: %s\n", value);
+    size = snprintf(buf, sizeof(buf) - 1, "health: %s\n", value);
+    assert(size > 0);
+    callback(opaque, buf, size);
 
-    monitor_printf(mon, "present: %s\n", (s->present) ? "true" : "false");
+    size = snprintf(buf, sizeof(buf) - 1,
+                    "present: %s\n", (s->present) ? "true" : "false");
+    assert(size > 0);
+    callback(opaque, buf, size);
 
-    monitor_printf(mon, "capacity: %d\n", s->capacity);
+    size = snprintf(buf, sizeof(buf) - 1, "capacity: %d\n", s->capacity);
+    assert(size > 0);
+    callback(opaque, buf, size);
+}
+
+static void monitor_print_callback(void* opaque, const char* buf, int size)
+{
+    Monitor* mon = (Monitor*)opaque;
+    monitor_printf(mon, buf);
+}
+
+void goldfish_battery_display(Monitor *mon)
+{
+    goldfish_battery_display_cb(mon, &monitor_print_callback);
+}
+
+int goldfish_battery_read_prop(int property)
+{
+    int retVal = 0;
+
+    DeviceState *dev = qdev_find_recursive(sysbus_get_default(),
+                                           TYPE_GOLDFISH_BATTERY);
+    struct goldfish_battery_state *battery_state = GOLDFISH_BATTERY(dev);
+
+    if (!battery_state || !battery_state->hw_has_battery) {
+        return 0;
+    }
+
+    switch (property) {
+        case POWER_SUPPLY_PROP_ONLINE:
+            retVal = battery_state->ac_online;
+            break;
+        case POWER_SUPPLY_PROP_STATUS:
+            retVal = battery_state->status;
+            break;
+        case POWER_SUPPLY_PROP_HEALTH:
+            retVal = battery_state->health;
+            break;
+        case POWER_SUPPLY_PROP_PRESENT:
+            retVal = battery_state->present;
+            break;
+        case POWER_SUPPLY_PROP_CAPACITY:
+            retVal = battery_state->capacity;
+            break;
+        default:
+            retVal = 0;
+            break;
+    }
+    return retVal;
 }
 
 void goldfish_battery_set_prop(int ac, int property, int value)
